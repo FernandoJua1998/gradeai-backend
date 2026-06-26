@@ -3,8 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api import auth
+from app.api import grupos
+from app.api import alumnos
+from app.api import tareas
+from app.api import entregas
 
-app = FastAPI(title="GradeAI API", version="0.1.0")
+app = FastAPI(title="GradeAI API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,6 +19,10 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(grupos.router)
+app.include_router(alumnos.router)
+app.include_router(tareas.router)
+app.include_router(entregas.router)
 
 
 @app.get("/health")
