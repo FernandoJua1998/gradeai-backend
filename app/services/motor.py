@@ -3,6 +3,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.db.models.alumno import Alumno
 from app.db.models.entrega import Entrega
 from app.db.models.revision import Revision
 from app.db.models.tarea import Tarea
@@ -21,11 +22,13 @@ def procesar_tarea(tarea_id: int, db: Session) -> None:
 
     entregas = (
         db.query(Entrega)
+        .join(Alumno)
         .filter(Entrega.tarea_id == tarea_id, Entrega.status == "pending")
         .all()
     )
 
     for entrega in entregas:
+        alumno_nombre = entrega.alumno.nombre if entrega.alumno else f"id={entrega.id}"
         try:
             entrega.status = "processing"
             db.commit()
@@ -52,8 +55,19 @@ def procesar_tarea(tarea_id: int, db: Session) -> None:
 
             entrega.status = "done"
             db.commit()
+            logger.info("Entrega procesada: alumno=%s entrega_id=%d", alumno_nombre, entrega.id)
 
         except Exception as exc:
-            logger.exception("Error procesando entrega %d: %s", entrega.id, exc)
-            entrega.status = "error"
-            db.commit()
+            error_type = type(exc).__name__
+            logger.exception(
+                "Error procesando entrega: alumno=%s entrega_id=%d error=%s: %s",
+                alumno_nombre, entrega.id, error_type, exc,
+            )
+            # Ensure entrega never stays in "processing" state
+            try:
+                entrega.status = "error"
+                db.commit()
+            except Exception:
+                db.rollback()
+                entrega.status = "error"
+                db.commit()

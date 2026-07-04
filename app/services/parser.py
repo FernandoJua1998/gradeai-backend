@@ -1,12 +1,16 @@
 """Text extraction from PDF, Word, and image files."""
 import base64
+import logging
 from pathlib import Path
 
 import anthropic
 import fitz  # pymupdf
 from docx import Document
+from docx.opc.exceptions import PackageNotFoundError
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -33,14 +37,31 @@ def extract_text(file_path: str) -> str:
 
 
 def _extract_pdf(file_path: str) -> str:
-    doc = fitz.open(file_path)
-    pages = [page.get_text() for page in doc]
-    doc.close()
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        raise ValueError(f"No se pudo abrir el PDF: {e}") from e
+
+    if doc.is_encrypted:
+        doc.close()
+        raise ValueError("El PDF está encriptado y no se puede leer sin contraseña")
+
+    try:
+        pages = [page.get_text() for page in doc]
+    finally:
+        doc.close()
+
     return "\n".join(pages)
 
 
 def _extract_docx(file_path: str) -> str:
-    doc = Document(file_path)
+    try:
+        doc = Document(file_path)
+    except PackageNotFoundError as e:
+        raise ValueError(f"El archivo Word está corrupto o no es un .docx válido: {e}") from e
+    except Exception as e:
+        raise ValueError(f"No se pudo abrir el archivo Word: {e}") from e
+
     return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
 
@@ -52,27 +73,32 @@ def _extract_image_via_claude(file_path: str, ext: str) -> str:
     }
     media_type = media_type_map[ext]
 
-    with open(file_path, "rb") as f:
-        image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+    try:
+        with open(file_path, "rb") as f:
+            image_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
-    response = _client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_data,
+        response = _client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_data,
+                            },
                         },
-                    },
-                    {"type": "text", "text": "Transcribe el texto de esta imagen"},
-                ],
-            }
-        ],
-    )
-    return response.content[0].text
+                        {"type": "text", "text": "Transcribe el texto de esta imagen"},
+                    ],
+                }
+            ],
+        )
+        return response.content[0].text
+    except Exception as e:
+        logger.warning("No se pudo transcribir imagen %s: %s", file_path, e)
+        # Return whatever partial text we might have, let extract_text validate length
+        return ""

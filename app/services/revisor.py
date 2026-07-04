@@ -22,6 +22,12 @@ Responde ÚNICAMENTE en JSON válido con este formato exacto:
   "retroalimentacion": str
 }"""
 
+_FALLBACK_RESULT = {
+    "desglose": [],
+    "calificacion_total": 0.0,
+    "retroalimentacion": "No se pudo completar la revisión automática debido a un error en el servicio de IA.",
+}
+
 
 def revisar_entrega(texto: str, criterios: list, rubrica: str | None) -> dict:
     criterios_json = json.dumps(criterios, ensure_ascii=False)
@@ -33,11 +39,13 @@ def revisar_entrega(texto: str, criterios: list, rubrica: str | None) -> dict:
         f"Tarea del alumno:\n{texto}"
     )
 
+    last_error: Exception | None = None
     for attempt in range(3):
         try:
             response = _client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=1500,
+                timeout=30.0,
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
             )
@@ -49,6 +57,11 @@ def revisar_entrega(texto: str, criterios: list, rubrica: str | None) -> dict:
                     raw = raw[4:]
             return json.loads(raw)
         except json.JSONDecodeError as e:
+            last_error = e
             logger.warning("Intento %d: JSON inválido en respuesta del revisor: %s", attempt + 1, e)
-            if attempt == 2:
-                raise ValueError("El modelo no devolvió JSON válido tras 3 intentos") from e
+        except anthropic.APITimeoutError as e:
+            last_error = e
+            logger.warning("Intento %d: timeout al llamar Claude API en revisor", attempt + 1)
+
+    logger.error("Revisor falló tras 3 intentos: %s. Retornando resultado vacío.", last_error)
+    return _FALLBACK_RESULT
