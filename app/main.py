@@ -7,8 +7,9 @@ from app.api import grupos
 from app.api import alumnos
 from app.api import tareas
 from app.api import entregas
+from app.api import revision
 
-app = FastAPI(title="GradeAI API", version="0.2.0")
+app = FastAPI(title="GradeAI API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +24,7 @@ app.include_router(grupos.router)
 app.include_router(alumnos.router)
 app.include_router(tareas.router)
 app.include_router(entregas.router)
+app.include_router(revision.router)
 
 
 @app.get("/health")
