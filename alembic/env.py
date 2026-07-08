@@ -3,8 +3,13 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
+from app.db.models.user import User  # noqa: F401
+from app.db.models.grupo import Grupo  # noqa: F401
+from app.db.models.tarea import Tarea  # noqa: F401
+from app.db.models.alumno import Alumno  # noqa: F401
+from app.db.models.entrega import Entrega  # noqa: F401
+from app.db.models.revision import Revision  # noqa: F401
 from app.db.base import Base
-import app.db.models  # noqa: F401 — registers all models
 
 config = context.config
 
