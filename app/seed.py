@@ -4,6 +4,7 @@ from app.core.security import hash_password
 
 
 def seed():
+    print("=== Corriendo seed ===")
     db = SessionLocal()
     try:
         existing = db.query(User).filter(User.email == "admin@gradeai.com").first()
