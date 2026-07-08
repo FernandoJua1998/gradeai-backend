@@ -34,7 +34,7 @@ def procesar_tarea(tarea_id: int, db: Session) -> None:
 
             texto = extract_text(entrega.archivo_path)
 
-            resultado = revisar_y_detectar(texto, tarea.criterios, tarea.rubrica_path)
+            resultado = revisar_y_detectar(texto, tarea.criterios, tarea.rubrica_path, tarea.config_ia)
 
             revision = Revision(
                 entrega_id=entrega.id,
