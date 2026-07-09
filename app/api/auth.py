@@ -1,15 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_password, hash_password, create_access_token, decode_access_token
 from app.db.session import get_db
 from app.db.models.user import User
-from app.db.models.grupo import Grupo
-from app.db.models.tarea import Tarea
-from app.db.models.entrega import Entrega
-from app.db.models.revision import Revision
 from app.schemas.auth import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, UsuarioOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -78,34 +73,33 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
 
 
 @router.get("/mis-stats")
-def get_mis_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    total_tareas = (
-        db.query(Tarea)
-        .join(Grupo, Tarea.grupo_id == Grupo.id)
-        .filter(Grupo.user_id == current_user.id)
-        .count()
-    )
+def get_mis_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.db.models.grupo import Grupo
+    from app.db.models.tarea import Tarea
+    from app.db.models.entrega import Entrega
+    from app.db.models.revision import Revision
 
-    entrega_ids_sq = (
-        db.query(Entrega.id)
-        .join(Tarea, Entrega.tarea_id == Tarea.id)
-        .join(Grupo, Tarea.grupo_id == Grupo.id)
-        .filter(Grupo.user_id == current_user.id)
-        .subquery()
-    )
+    grupo_ids = db.query(Grupo.id).filter(Grupo.user_id == current_user.id).subquery()
+    tarea_ids = db.query(Tarea.id).filter(Tarea.grupo_id.in_(grupo_ids)).subquery()
+    total_tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupo_ids)).count()
 
-    total_entregas = db.query(Entrega).filter(Entrega.id.in_(entrega_ids_sq)).count()
+    entrega_ids = db.query(Entrega.id).filter(Entrega.tarea_id.in_(tarea_ids)).subquery()
+    total_entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tarea_ids)).count()
 
-    rev_query = db.query(
-        func.count(Revision.id).label("total"),
-        func.coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
-        func.coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
-        func.coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
-    ).filter(Revision.entrega_id.in_(entrega_ids_sq)).one()
+    try:
+        revisiones = db.query(Revision).filter(Revision.entrega_id.in_(entrega_ids)).all()
+        tokens_consumidos = sum((r.tokens_input or 0) + (r.tokens_output or 0) for r in revisiones)
+        costo_estimado = sum(r.costo_estimado or 0.0 for r in revisiones)
+    except Exception:
+        tokens_consumidos = 0
+        costo_estimado = 0.0
 
     return {
         "total_tareas": total_tareas,
         "total_entregas": total_entregas,
-        "tokens_consumidos": int(rev_query.tokens_input) + int(rev_query.tokens_output),
-        "costo_estimado": round(float(rev_query.costo), 6),
+        "tokens_consumidos": tokens_consumidos,
+        "costo_estimado": costo_estimado,
     }
