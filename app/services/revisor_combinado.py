@@ -12,7 +12,18 @@ _client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 _SYSTEM_PROMPT_CALIFICACION = """\
 Eres un asistente de evaluación académica. Revisa y califica \
-la entrega del alumno según los criterios. Sé justo y detallado.
+la entrega del alumno según los criterios provistos.
+
+IMPORTANTE sobre la calificación:
+- Cada criterio tiene una ponderación sobre 100
+- Los "puntos" de cada criterio deben ser un valor entre 0 \
+y su ponderación (ej: si ponderacion=80, puntos puede ser \
+entre 0.0 y 80.0)
+- calificacion_total es la suma de todos los puntos obtenidos
+- Ejemplo: criterio redacción ponderacion=80, puntos=65.0
+           criterio referencias ponderacion=20, puntos=0.0
+           calificacion_total=65.0
+
 Responde ÚNICAMENTE en JSON válido con este formato exacto:
 {
   "desglose": [{"criterio": str, "ponderacion": int, "puntos": float, "comentario": str}],
