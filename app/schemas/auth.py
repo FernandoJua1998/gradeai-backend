@@ -15,6 +15,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     nombre: str
+    role: str
 
     model_config = {"from_attributes": True}
 
@@ -44,6 +45,7 @@ class UsuarioOut(BaseModel):
     id: int
     nombre: str
     email: str
+    role: str
 
     model_config = {"from_attributes": True}
 
