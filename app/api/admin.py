@@ -1,140 +1,127 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, extract
-import sqlalchemy as sa
-from datetime import datetime, timedelta
 
 from app.db.session import get_db
 from app.db.models.user import User
-from app.db.models.grupo import Grupo
-from app.db.models.tarea import Tarea
-from app.db.models.entrega import Entrega
-from app.db.models.revision import Revision
-from app.api.auth import get_current_admin
+from app.api.auth import get_current_user
 
 router = APIRouter()
 
 
+def get_current_admin(
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
+    return current_user
+
+
 @router.get("/usuarios")
-def list_usuarios(current_user: User = Depends(get_current_admin), db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    result = []
-    for u in users:
-        grupos_ids = db.query(Grupo.id).filter(Grupo.user_id == u.id).subquery()
-        tareas_ids = db.query(Tarea.id).filter(Tarea.grupo_id.in_(grupos_ids)).subquery()
-        entregas_ids = db.query(Entrega.id).filter(Entrega.tarea_id.in_(tareas_ids)).subquery()
+def list_usuarios(
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    from app.db.models.grupo import Grupo
+    from app.db.models.tarea import Tarea
+    from app.db.models.entrega import Entrega
+    from app.db.models.revision import Revision
 
-        total_tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupos_ids)).count()
-        total_entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tareas_ids)).count()
+    usuarios = db.query(User).all()
+    resultado = []
+    for u in usuarios:
+        grupos = db.query(Grupo).filter(Grupo.user_id == u.id).all()
+        grupo_ids = [g.id for g in grupos]
 
-        rev_stats = db.query(
-            func.count(Revision.id).label("total"),
-            func.coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
-            func.coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
-            func.coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
-        ).filter(Revision.entrega_id.in_(entregas_ids)).one()
+        tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupo_ids)).all() if grupo_ids else []
+        tarea_ids = [t.id for t in tareas]
 
-        result.append({
+        entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tarea_ids)).all() if tarea_ids else []
+        entrega_ids = [e.id for e in entregas]
+
+        revisiones = db.query(Revision).filter(Revision.entrega_id.in_(entrega_ids)).all() if entrega_ids else []
+
+        tokens = 0
+        costo = 0.0
+        for r in revisiones:
+            try:
+                tokens += (getattr(r, 'tokens_input', 0) or 0) + (getattr(r, 'tokens_output', 0) or 0)
+                costo += getattr(r, 'costo_estimado', 0.0) or 0.0
+            except Exception:
+                pass
+
+        resultado.append({
             "id": u.id,
             "nombre": u.nombre,
             "email": u.email,
-            "role": u.role,
-            "is_active": u.is_active,
-            "created_at": u.created_at.isoformat() if hasattr(u, "created_at") and u.created_at else None,
-            "total_tareas": total_tareas,
-            "total_entregas": total_entregas,
-            "total_revisiones": rev_stats.total,
-            "total_tokens_input": int(rev_stats.tokens_input),
-            "total_tokens_output": int(rev_stats.tokens_output),
-            "costo_total_estimado": round(float(rev_stats.costo), 6),
+            "role": u.role or "teacher",
+            "is_active": u.is_active if u.is_active is not None else True,
+            "total_tareas": len(tareas),
+            "total_entregas": len(entregas),
+            "tokens_consumidos": tokens,
+            "costo_estimado": costo,
         })
-    return result
-
-
-@router.get("/usuarios/{user_id}/stats")
-def get_usuario_stats(user_id: int, current_user: User = Depends(get_current_admin), db: Session = Depends(get_db)):
-    u = db.query(User).filter(User.id == user_id).first()
-    if not u:
-        raise HTTPException(404, "Usuario no encontrado")
-
-    grupos_ids = db.query(Grupo.id).filter(Grupo.user_id == u.id).subquery()
-    tareas_ids = db.query(Tarea.id).filter(Tarea.grupo_id.in_(grupos_ids)).subquery()
-    entregas_ids = db.query(Entrega.id).filter(Entrega.tarea_id.in_(tareas_ids)).subquery()
-
-    # Últimos 6 meses
-    six_months_ago = datetime.utcnow() - timedelta(days=180)
-    monthly = db.query(
-        extract("year", Revision.created_at).label("year"),
-        extract("month", Revision.created_at).label("month"),
-        func.count(Revision.id).label("revisiones"),
-        func.coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
-        func.coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
-        func.coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
-    ).filter(
-        Revision.entrega_id.in_(entregas_ids),
-        Revision.created_at >= six_months_ago,
-    ).group_by("year", "month").order_by("year", "month").all()
-
-    monthly_data = [
-        {
-            "year": int(r.year),
-            "month": int(r.month),
-            "revisiones": r.revisiones,
-            "tokens_input": int(r.tokens_input),
-            "tokens_output": int(r.tokens_output),
-            "costo": round(float(r.costo), 6),
-        }
-        for r in monthly
-    ]
-
-    return {
-        "usuario": {"id": u.id, "nombre": u.nombre, "email": u.email},
-        "por_mes": monthly_data,
-    }
-
-
-@router.patch("/usuarios/{user_id}/toggle-status")
-def toggle_usuario_status(user_id: int, current_user: User = Depends(get_current_admin), db: Session = Depends(get_db)):
-    if user_id == current_user.id:
-        raise HTTPException(400, "No puedes desactivar tu propia cuenta")
-    u = db.query(User).filter(User.id == user_id).first()
-    if not u:
-        raise HTTPException(404, "Usuario no encontrado")
-    u.is_active = not u.is_active
-    db.commit()
-    db.refresh(u)
-    return {"id": u.id, "is_active": u.is_active}
-
-
-@router.delete("/usuarios/{user_id}")
-def delete_usuario(user_id: int, current_user: User = Depends(get_current_admin), db: Session = Depends(get_db)):
-    if user_id == current_user.id:
-        raise HTTPException(400, "No puedes eliminarte a ti mismo")
-    u = db.query(User).filter(User.id == user_id).first()
-    if not u:
-        raise HTTPException(404, "Usuario no encontrado")
-    db.delete(u)
-    db.commit()
-    return {"detail": "Usuario eliminado"}
+    return resultado
 
 
 @router.get("/stats/global")
-def get_global_stats(current_user: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+def get_global_stats(
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    from app.db.models.tarea import Tarea
+    from app.db.models.entrega import Entrega
+    from app.db.models.revision import Revision
+
     total_usuarios = db.query(User).count()
     total_tareas = db.query(Tarea).count()
     total_entregas = db.query(Entrega).count()
 
-    rev_stats = db.query(
-        func.coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
-        func.coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
-        func.coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
-    ).one()
+    revisiones = db.query(Revision).all()
+    total_tokens = 0
+    costo_total = 0.0
+    for r in revisiones:
+        try:
+            total_tokens += (getattr(r, 'tokens_input', 0) or 0) + (getattr(r, 'tokens_output', 0) or 0)
+            costo_total += getattr(r, 'costo_estimado', 0.0) or 0.0
+        except Exception:
+            pass
 
     return {
         "total_usuarios": total_usuarios,
         "total_tareas": total_tareas,
         "total_entregas": total_entregas,
-        "total_tokens_input": int(rev_stats.tokens_input),
-        "total_tokens_output": int(rev_stats.tokens_output),
-        "costo_total": round(float(rev_stats.costo), 6),
+        "total_tokens": total_tokens,
+        "costo_total": costo_total,
     }
+
+
+@router.patch("/usuarios/{user_id}/toggle-status")
+def toggle_status(
+    user_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.is_active = not user.is_active
+    db.commit()
+    return {"id": user.id, "is_active": user.is_active}
+
+
+@router.delete("/usuarios/{user_id}")
+def delete_usuario(
+    user_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    db.delete(user)
+    db.commit()
+    return {"message": "Usuario eliminado"}
