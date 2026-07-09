@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import func, coalesce
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_password, hash_password, create_access_token, decode_access_token
@@ -98,9 +98,9 @@ def get_mis_stats(current_user: User = Depends(get_current_user), db: Session = 
 
     rev_query = db.query(
         func.count(Revision.id).label("total"),
-        coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
-        coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
-        coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
+        func.coalesce(func.sum(Revision.tokens_input), 0).label("tokens_input"),
+        func.coalesce(func.sum(Revision.tokens_output), 0).label("tokens_output"),
+        func.coalesce(func.sum(Revision.costo_estimado), 0.0).label("costo"),
     ).filter(Revision.entrega_id.in_(entrega_ids_sq)).one()
 
     return {
