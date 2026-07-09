@@ -95,6 +95,59 @@ def get_global_stats(
     }
 
 
+@router.get("/usuarios/{user_id}/stats")
+def get_usuario_stats(
+    user_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    from app.db.models.grupo import Grupo
+    from app.db.models.tarea import Tarea
+    from app.db.models.entrega import Entrega
+    from app.db.models.revision import Revision
+    from datetime import datetime, timedelta
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    grupos = db.query(Grupo).filter(Grupo.user_id == user_id).all()
+    grupo_ids = [g.id for g in grupos]
+
+    tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupo_ids)).all() if grupo_ids else []
+    tarea_ids = [t.id for t in tareas]
+
+    entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tarea_ids)).all() if tarea_ids else []
+    entrega_ids = [e.id for e in entregas]
+
+    revisiones = db.query(Revision).filter(Revision.entrega_id.in_(entrega_ids)).all() if entrega_ids else []
+
+    # Agrupar por mes (últimos 6 meses)
+    meses = {}
+    for r in revisiones:
+        if r.created_at:
+            mes = r.created_at.strftime("%Y-%m")
+            if mes not in meses:
+                meses[mes] = {"mes": mes, "tokens": 0, "costo": 0.0, "revisiones": 0}
+            meses[mes]["tokens"] += (getattr(r, 'tokens_input', 0) or 0) + (getattr(r, 'tokens_output', 0) or 0)
+            meses[mes]["costo"] += getattr(r, 'costo_estimado', 0.0) or 0.0
+            meses[mes]["revisiones"] += 1
+
+    # Tareas por materia
+    materias = {}
+    for g in grupos:
+        materia = g.materia or "Sin materia"
+        tareas_grupo = [t for t in tareas if t.grupo_id == g.id]
+        materias[materia] = materias.get(materia, 0) + len(tareas_grupo)
+
+    return {
+        "usuario": {"id": user.id, "nombre": user.nombre, "email": user.email},
+        "por_mes": sorted(meses.values(), key=lambda x: x["mes"]),
+        "por_materia": [{"materia": k, "total_tareas": v} for k, v in materias.items()],
+        "total_revisiones": len(revisiones),
+    }
+
+
 @router.patch("/usuarios/{user_id}/toggle-status")
 def toggle_status(
     user_id: int,
