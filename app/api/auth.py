@@ -83,17 +83,22 @@ def get_mis_stats(
     from app.db.models.entrega import Entrega
     from app.db.models.revision import Revision
 
-    grupo_ids = db.query(Grupo.id).filter(Grupo.user_id == current_user.id).subquery()
-    tarea_ids = db.query(Tarea.id).filter(Tarea.grupo_id.in_(grupo_ids)).subquery()
-    total_tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupo_ids)).count()
+    grupos = db.query(Grupo).filter(Grupo.user_id == current_user.id).all()
+    grupo_ids = [g.id for g in grupos]
 
-    entrega_ids = db.query(Entrega.id).filter(Entrega.tarea_id.in_(tarea_ids)).subquery()
-    total_entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tarea_ids)).count()
+    tareas = db.query(Tarea).filter(Tarea.grupo_id.in_(grupo_ids)).all() if grupo_ids else []
+    tarea_ids = [t.id for t in tareas]
+
+    entregas = db.query(Entrega).filter(Entrega.tarea_id.in_(tarea_ids)).all() if tarea_ids else []
+    entrega_ids = [e.id for e in entregas]
+
+    total_tareas = len(tareas)
+    total_entregas = len(entregas)
 
     try:
-        revisiones = db.query(Revision).filter(Revision.entrega_id.in_(entrega_ids)).all()
-        tokens_consumidos = sum((r.tokens_input or 0) + (r.tokens_output or 0) for r in revisiones)
-        costo_estimado = sum(r.costo_estimado or 0.0 for r in revisiones)
+        revisiones = db.query(Revision).filter(Revision.entrega_id.in_(entrega_ids)).all() if entrega_ids else []
+        tokens_consumidos = sum((getattr(r, 'tokens_input', 0) or 0) + (getattr(r, 'tokens_output', 0) or 0) for r in revisiones)
+        costo_estimado = sum(getattr(r, 'costo_estimado', 0.0) or 0.0 for r in revisiones)
     except Exception:
         tokens_consumidos = 0
         costo_estimado = 0.0
