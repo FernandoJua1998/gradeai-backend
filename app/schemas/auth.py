@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -13,11 +13,12 @@ class TokenResponse(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    email: str
     nombre: str
+    email: str
     role: str
+    is_active: bool
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RegisterRequest(BaseModel):
@@ -47,7 +48,7 @@ class UsuarioOut(BaseModel):
     email: str
     role: str
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RegisterResponse(BaseModel):
