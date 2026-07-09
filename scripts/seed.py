@@ -24,11 +24,12 @@ Base.metadata.create_all(engine)
 
 with Session(engine) as session:
     existing = session.query(User).filter(User.email == email).first()
-    if existing:
-        print(f"Usuario {email} ya existe.")
-        sys.exit(0)
-
-    user = User(email=email, password_hash=hash_password(password), nombre=nombre)
-    session.add(user)
-    session.commit()
-    print(f"Usuario creado: {email}")
+    if not existing:
+        user = User(email=email, password_hash=hash_password(password), nombre=nombre, role="admin")
+        session.add(user)
+        session.commit()
+        print(f"Usuario creado: {email} / {password}")
+    else:
+        existing.role = "admin"
+        session.commit()
+        print(f"Usuario admin actualizado con role=admin")
