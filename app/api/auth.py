@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.core.security import verify_password, create_access_token, decode_access_token
+from app.core.security import verify_password, hash_password, create_access_token, decode_access_token
 from app.db.session import get_db
 from app.db.models.user import User
-from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from app.schemas.auth import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse, UsuarioOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer_scheme = HTTPBearer()
@@ -40,3 +40,25 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    if body.password != body.confirmar_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Las contraseñas no coinciden")
+
+    existing = db.query(User).filter(User.email == body.email).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Este correo ya está registrado")
+
+    user = User(
+        nombre=body.nombre,
+        email=body.email,
+        password_hash=hash_password(body.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(user.id)
+    return RegisterResponse(access_token=token, usuario=UsuarioOut.model_validate(user))
