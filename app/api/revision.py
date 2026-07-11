@@ -14,7 +14,7 @@ from app.db.models.tarea import Tarea
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.exportar import generar_excel
-from app.services.motor import procesar_tarea
+from app.services.motor import procesar_tarea_simple
 
 router = APIRouter(tags=["revision"])
 
@@ -32,25 +32,24 @@ def _get_tarea_or_404(tarea_id: int, user: User, db: Session) -> Tarea:
 
 
 @router.post("/revision/{tarea_id}")
-def iniciar_revision(
+async def iniciar_revision(
     tarea_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    tarea = _get_tarea_or_404(tarea_id, current_user, db)
-    total = db.query(Entrega).filter(Entrega.tarea_id == tarea_id).count()
+    _get_tarea_or_404(tarea_id, current_user, db)
 
-    # Reset any previous error/done states to pending so they get reprocessed
-    (
-        db.query(Entrega)
-        .filter(Entrega.tarea_id == tarea_id, Entrega.status.in_(["done", "error"]))
-        .update({"status": "pending"})
-    )
-    db.commit()
+    entregas_pending = db.query(Entrega).filter(
+        Entrega.tarea_id == tarea_id,
+        Entrega.status == "pending",
+    ).count()
 
-    background_tasks.add_task(procesar_tarea, tarea.id, db)
-    return {"status": "iniciado", "tarea_id": tarea_id, "total_entregas": total}
+    if entregas_pending == 0:
+        return {"status": "sin_entregas_pendientes", "tarea_id": tarea_id}
+
+    background_tasks.add_task(procesar_tarea_simple, tarea_id)
+    return {"status": "iniciado", "tarea_id": tarea_id, "total_entregas": entregas_pending}
 
 
 @router.get("/revision/status/{tarea_id}")
