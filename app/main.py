@@ -11,6 +11,7 @@ from app.api import tareas
 from app.api import entregas
 from app.api import revision
 from app.api.admin import router as admin_router
+from app.api.rubricas import router as rubricas_router
 
 app = FastAPI(title="GradeAI API", version="0.3.0")
 
@@ -32,6 +33,7 @@ app.include_router(tareas.router)
 app.include_router(entregas.router)
 app.include_router(revision.router)
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
+app.include_router(rubricas_router)
 
 
 @app.get("/health")

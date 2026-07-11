@@ -4,5 +4,6 @@ from app.db.models.tarea import Tarea
 from app.db.models.alumno import Alumno
 from app.db.models.entrega import Entrega
 from app.db.models.revision import Revision
+from app.db.models.rubrica import Rubrica
 
-__all__ = ["User", "Grupo", "Tarea", "Alumno", "Entrega", "Revision"]
+__all__ = ["User", "Grupo", "Tarea", "Alumno", "Entrega", "Revision", "Rubrica"]
