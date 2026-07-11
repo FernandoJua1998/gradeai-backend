@@ -57,6 +57,15 @@ _FALLBACK_DETECCION = {
 
 
 def _llamar_claude(model: str, max_tokens: int, system: str, user_prompt: str, label: str) -> dict | None:
+    data, _ = _llamar_claude_con_uso(model, max_tokens, system, user_prompt, label)
+    return data
+
+
+def _llamar_claude_con_uso(
+    model: str, max_tokens: int, system: str, user_prompt: str, label: str
+) -> tuple[dict | None, tuple[int, int]]:
+    """Call Claude and return (parsed_dict, (input_tokens, output_tokens)).
+    On failure returns (None, (0, 0))."""
     last_error: Exception | None = None
     for attempt in range(2):
         try:
@@ -72,7 +81,9 @@ def _llamar_claude(model: str, max_tokens: int, system: str, user_prompt: str, l
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
-            return json.loads(raw)
+            parsed = json.loads(raw)
+            usage = (response.usage.input_tokens, response.usage.output_tokens)
+            return parsed, usage
         except json.JSONDecodeError as e:
             last_error = e
             logger.warning("Intento %d: JSON inválido en %s: %s", attempt + 1, label, e)
@@ -80,10 +91,20 @@ def _llamar_claude(model: str, max_tokens: int, system: str, user_prompt: str, l
             last_error = e
             logger.warning("Intento %d: timeout en %s", attempt + 1, label)
     logger.error("%s falló tras 2 intentos: %s", label, last_error)
-    return None
+    return None, (0, 0)
+
+
+_ZERO_TOKEN_FIELDS = {
+    "tokens_input_haiku": 0,
+    "tokens_output_haiku": 0,
+    "tokens_input_sonnet": 0,
+    "tokens_output_sonnet": 0,
+    "costo_estimado": 0.0,
+}
 
 
 def revisar_y_detectar(texto: str, criterios: list, rubrica: str | None, config_ia: dict | None = None) -> dict:
+    texto = texto[:8000]
     criterios_json = json.dumps(criterios, ensure_ascii=False)
     rubrica_texto = rubrica if rubrica else "No proporcionada"
     prompt_calificacion = (
@@ -92,25 +113,35 @@ def revisar_y_detectar(texto: str, criterios: list, rubrica: str | None, config_
         f"Tarea del alumno:\n{texto}"
     )
 
-    calificacion = _llamar_claude(
+    calificacion_data, (tokens_input_haiku, tokens_output_haiku) = _llamar_claude_con_uso(
         model="claude-haiku-4-5-20251001",
-        max_tokens=800,
+        max_tokens=2000,
         system=_SYSTEM_PROMPT_CALIFICACION,
         user_prompt=prompt_calificacion,
         label="calificación (Haiku)",
-    ) or _FALLBACK_CALIFICACION
+    )
+    calificacion = calificacion_data or _FALLBACK_CALIFICACION
 
     modo = (config_ia or {}).get("modo", "informacional")
     if modo == "desactivado":
         deteccion = _FALLBACK_DETECCION
+        tokens_input_sonnet, tokens_output_sonnet = 0, 0
     else:
-        deteccion = _llamar_claude(
+        deteccion_data, (tokens_input_sonnet, tokens_output_sonnet) = _llamar_claude_con_uso(
             model="claude-sonnet-4-6",
-            max_tokens=800,
+            max_tokens=1500,
             system=_SYSTEM_PROMPT_DETECCION,
             user_prompt=f"Analiza el siguiente texto:\n{texto}",
             label="detección IA (Sonnet)",
-        ) or _FALLBACK_DETECCION
+        )
+        deteccion = deteccion_data or _FALLBACK_DETECCION
+
+    costo_estimado = (
+        (tokens_input_haiku / 1_000_000 * 0.80)
+        + (tokens_output_haiku / 1_000_000 * 4.00)
+        + (tokens_input_sonnet / 1_000_000 * 3.00)
+        + (tokens_output_sonnet / 1_000_000 * 15.00)
+    )
 
     return {
         "desglose": calificacion.get("desglose", []),
@@ -119,4 +150,9 @@ def revisar_y_detectar(texto: str, criterios: list, rubrica: str | None, config_
         "ia_probabilidad": deteccion.get("ia_probabilidad", 0.0),
         "ia_nivel_riesgo": deteccion.get("ia_nivel_riesgo", "bajo"),
         "ia_fragmentos": deteccion.get("ia_fragmentos", []),
+        "tokens_input_haiku": tokens_input_haiku,
+        "tokens_output_haiku": tokens_output_haiku,
+        "tokens_input_sonnet": tokens_input_sonnet,
+        "tokens_output_sonnet": tokens_output_sonnet,
+        "costo_estimado": costo_estimado,
     }
