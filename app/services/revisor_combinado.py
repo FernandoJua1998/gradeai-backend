@@ -72,7 +72,7 @@ def _llamar_claude_con_uso(
             response = _client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                timeout=30.0,
+                timeout=60.0,
                 system=system,
                 messages=[{"role": "user", "content": user_prompt}],
             )
