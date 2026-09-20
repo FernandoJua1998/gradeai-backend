@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Configuracion local (.env.example si se versiona)
+.env
+
+# Archivos subidos por los profesores (en Railway viven en el Volume)
+uploads/
+
+# Herramientas
+.pytest_cache/
+.coverage
+htmlcov/
+
+# SO / editores
+.DS_Store
+.idea/
+.vscode/
