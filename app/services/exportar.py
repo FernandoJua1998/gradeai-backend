@@ -35,8 +35,9 @@ def generar_excel(tarea_id: int, db: Session) -> bytes:
     # Build header row
     headers = ["Alumno", "Calificación"]
     for c in criterios:
-        peso = int(float(c.get("peso", 0)) * 100)
-        headers.append(f"{c.get('nombre', '')} ({peso}%)")
+        # criterios se guardan como {nombre, ponderacion} y las ponderaciones suman 100
+        ponderacion = int(float(c.get("ponderacion", 0)))
+        headers.append(f"{c.get('nombre', '')} ({ponderacion}%)")
     headers += ["Retroalimentación", "% IA", "Nivel IA", "Fragmentos sospechosos"]
 
     for col_idx, header in enumerate(headers, start=1):
@@ -80,7 +81,8 @@ def generar_excel(tarea_id: int, db: Session) -> bytes:
         ws.cell(row=row_idx, column=2).number_format = "0.0"
         # % IA column index
         ia_col = 2 + len(criterios) + 2  # Alumno + Cal + criterios + Retro + % IA
-        ws.cell(row=row_idx, column=ia_col).number_format = '0.0"%"'
+        # La celda guarda la fracción (0.125); '0.0%' hace que Excel muestre 12.5%
+        ws.cell(row=row_idx, column=ia_col).number_format = "0.0%"
 
     # Auto-fit column widths (max 60)
     for col_idx in range(1, len(headers) + 1):
